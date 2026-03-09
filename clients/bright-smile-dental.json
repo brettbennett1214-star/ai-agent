@@ -1,0 +1,30 @@
+{
+  "businessName": "Bright Smile Dental",
+  "industry": "Dentist",
+  "location": "Dubai",
+  "hours": "Monday to Saturday, 9 AM to 7 PM",
+  "phone": "0551234567",
+  "email": "info@brightsmile.com",
+  "services": [
+    "Dental cleaning",
+    "Teeth whitening",
+    "Dental implants",
+    "Veneers",
+    "Emergency dental care"
+  ],
+  "bookingMessage": "To book an appointment, please share your name, phone number, and email.",
+  "faqs": [
+    {
+      "question": "Do you offer teeth whitening?",
+      "answer": "Yes, we offer professional teeth whitening treatments."
+    },
+    {
+      "question": "Are you open on weekends?",
+      "answer": "We are open on Saturday from 9 AM to 7 PM and closed on Sunday."
+    },
+    {
+      "question": "Do you handle dental emergencies?",
+      "answer": "Yes, we provide emergency dental care."
+    }
+  ]
+}

@@ -3,8 +3,9 @@ import cors from "cors";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import fs from "fs";
+import path from "path";
 import axios from "axios";
-import https from "https";
+import { fileURLToPath } from "url";
 import { google } from "googleapis";
 
 dotenv.config();
@@ -13,18 +14,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const LEADS_FILE = "leads.json";
-const BUSINESS_DATA_FILE = "business-data.json";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const LEADS_FILE = path.join(__dirname, "leads.json");
+const CLIENTS_DIR = path.join(__dirname, "clients");
 const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
 const SHEET_RANGE = "Sheet1!A:E";
 
-let currentLead = {
-  name: "",
-  phone: "",
-  email: "",
-  notes: "",
-  time: ""
-};
+const leadSessions = {};
 
 function ensureLeadsFileExists() {
   if (!fs.existsSync(LEADS_FILE)) {
@@ -32,28 +30,9 @@ function ensureLeadsFileExists() {
   }
 }
 
-function ensureBusinessDataFileExists() {
-  if (!fs.existsSync(BUSINESS_DATA_FILE)) {
-    fs.writeFileSync(
-      BUSINESS_DATA_FILE,
-      JSON.stringify(
-        {
-          businessName: "Demo Business",
-          industry: "Local Business",
-          location: "Unknown",
-          hours: "Unknown",
-          phone: "",
-          email: "",
-          services: [],
-          bookingMessage:
-            "To book an appointment, please share your name, phone number, and email.",
-          faqs: []
-        },
-        null,
-        2
-      ),
-      "utf8"
-    );
+function ensureClientsDirExists() {
+  if (!fs.existsSync(CLIENTS_DIR)) {
+    fs.mkdirSync(CLIENTS_DIR, { recursive: true });
   }
 }
 
@@ -73,11 +52,21 @@ function writeLeads(leads) {
   fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2), "utf8");
 }
 
-function readBusinessData() {
-  ensureBusinessDataFileExists();
+function getClientFilePath(clientId) {
+  const safeClientId = String(clientId || "default")
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, "");
+
+  return path.join(CLIENTS_DIR, `${safeClientId}.json`);
+}
+
+function readBusinessData(clientId = "bright-smile-dental") {
+  ensureClientsDirExists();
+
+  const filePath = getClientFilePath(clientId);
 
   try {
-    const raw = fs.readFileSync(BUSINESS_DATA_FILE, "utf8");
+    const raw = fs.readFileSync(filePath, "utf8");
     return JSON.parse(raw);
   } catch {
     return {
@@ -95,8 +84,10 @@ function readBusinessData() {
   }
 }
 
-function writeBusinessData(data) {
-  fs.writeFileSync(BUSINESS_DATA_FILE, JSON.stringify(data, null, 2), "utf8");
+function writeBusinessData(clientId, data) {
+  ensureClientsDirExists();
+  const filePath = getClientFilePath(clientId);
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
 }
 
 function extractName(message) {
@@ -127,44 +118,63 @@ function looksLikeLeadInfo(message) {
   );
 }
 
-function updateCurrentLead(message) {
+function getSession(sessionId) {
+  if (!leadSessions[sessionId]) {
+    leadSessions[sessionId] = {
+      name: "",
+      phone: "",
+      email: "",
+      notes: "",
+      time: ""
+    };
+  }
+
+  return leadSessions[sessionId];
+}
+
+function updateSessionLead(sessionId, message) {
+  const session = getSession(sessionId);
+
   const name = extractName(message);
   const phone = extractPhone(message);
   const email = extractEmail(message);
 
-  if (name) currentLead.name = name;
-  if (phone) currentLead.phone = phone;
-  if (email) currentLead.email = email;
+  if (name) session.name = name;
+  if (phone) session.phone = phone;
+  if (email) session.email = email;
 
-  currentLead.notes = currentLead.notes
-    ? `${currentLead.notes} | ${message}`
+  session.notes = session.notes
+    ? `${session.notes} | ${message}`
     : message;
 
-  if (!currentLead.time) {
-    currentLead.time = new Date().toISOString();
+  if (!session.time) {
+    session.time = new Date().toISOString();
   }
 
-  return currentLead;
+  return session;
 }
 
-function isLeadComplete(lead) {
-  return !!(lead.name && lead.phone && lead.email);
-}
-
-function saveCompletedLead(lead) {
-  const leads = readLeads();
-  leads.push({ ...lead });
-  writeLeads(leads);
-}
-
-function resetCurrentLead() {
-  currentLead = {
+function resetSession(sessionId) {
+  leadSessions[sessionId] = {
     name: "",
     phone: "",
     email: "",
     notes: "",
     time: ""
   };
+}
+
+function isLeadComplete(lead) {
+  return !!(lead.name && lead.phone && lead.email);
+}
+
+function saveCompletedLead(lead, clientId) {
+  const leads = readLeads();
+  leads.push({
+    ...lead,
+    clientId
+  });
+  writeLeads(leads);
 }
 
 function stripHtml(html) {
@@ -176,18 +186,6 @@ function stripHtml(html) {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function getTitleFromHtml(html) {
-  const match = html.match(/<title>([\s\S]*?)<\/title>/i);
-  return match ? match[1].trim() : "";
-}
-
-function getMetaDescriptionFromHtml(html) {
-  const match = html.match(
-    /<meta[^>]+name=["']description["'][^>]+content=["']([^"]*?)["']/i
-  );
-  return match ? match[1].trim() : "";
 }
 
 function extractEmailsFromText(text) {
@@ -213,14 +211,19 @@ function extractLikelyServices(text) {
     "cleaning",
     "whitening",
     "implants",
-    "emergency care"
+    "emergency care",
+    "personal training",
+    "gym membership",
+    "roof repair",
+    "roof installation",
+    "plumbing repair"
   ];
 
   const lower = text.toLowerCase();
   return serviceKeywords.filter((service) => lower.includes(service));
 }
 
-async function appendLeadToGoogleSheet(lead) {
+async function appendLeadToGoogleSheet(lead, clientId, businessData) {
   if (!SPREADSHEET_ID) return;
   if (!process.env.GOOGLE_SERVICE_ACCOUNT) return;
 
@@ -236,7 +239,15 @@ async function appendLeadToGoogleSheet(lead) {
     range: SHEET_RANGE,
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [[lead.name, lead.phone, lead.email, lead.notes, lead.time]]
+      values: [[
+        clientId,
+        businessData.businessName,
+        lead.name,
+        lead.phone,
+        lead.email,
+        lead.notes,
+        lead.time
+      ]]
     }
   });
 }
@@ -253,41 +264,51 @@ app.get("/", (req, res) => {
 });
 
 app.get("/business-data", (req, res) => {
-  res.json(readBusinessData());
+  const clientId = req.query.client || "bright-smile-dental";
+  res.json(readBusinessData(clientId));
+});
+
+app.get("/clients", (req, res) => {
+  ensureClientsDirExists();
+
+  const files = fs.readdirSync(CLIENTS_DIR)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => file.replace(".json", ""));
+
+  res.json({ clients: files });
 });
 
 app.post("/train-from-website", async (req, res) => {
   try {
-    const { url } = req.body;
+    const { url, clientId } = req.body;
 
     if (!url) {
       return res.status(400).json({ error: "Website URL is required." });
     }
 
-    const websiteResponse = await axios.get(url, {
-      timeout: 15000,
+    if (!clientId) {
+      return res.status(400).json({ error: "clientId is required." });
+    }
+
+    const readerUrl = `https://r.jina.ai/${url}`;
+
+    const websiteResponse = await axios.get(readerUrl, {
+      timeout: 20000,
       maxRedirects: 5,
-      httpsAgent: new https.Agent({
-        rejectUnauthorized: false
-      }),
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml"
+        "User-Agent": "Mozilla/5.0",
+        Accept: "text/plain, text/markdown, text/html"
       }
     });
 
-    const html = websiteResponse.data;
-    const pageTitle = getTitleFromHtml(html);
-    const metaDescription = getMetaDescriptionFromHtml(html);
-    const plainText = stripHtml(html).slice(0, 12000);
+    const plainText = String(websiteResponse.data || "").slice(0, 12000);
 
     const emails = extractEmailsFromText(plainText);
     const phones = extractPhonesFromText(plainText);
     const likelyServices = extractLikelyServices(plainText);
 
     const fallbackBusinessData = {
-      businessName: pageTitle || "Imported Business",
+      businessName: "Imported Business",
       industry: "Local Business",
       location: "Unknown",
       hours: "Unknown",
@@ -296,11 +317,11 @@ app.post("/train-from-website", async (req, res) => {
       services: likelyServices.length ? likelyServices : [],
       bookingMessage:
         "To book an appointment, please share your name, phone number, and email.",
-      faqs: metaDescription
+      faqs: plainText
         ? [
             {
               question: "What does this business offer?",
-              answer: metaDescription
+              answer: plainText.slice(0, 300)
             }
           ]
         : []
@@ -338,13 +359,11 @@ Return valid JSON only with this exact structure:
             {
               role: "user",
               content: `
-Website URL: ${url}
+Client ID:
+${clientId}
 
-Page title:
-${pageTitle}
-
-Meta description:
-${metaDescription}
+Website URL:
+${url}
 
 Website text:
 ${plainText}
@@ -377,10 +396,11 @@ ${plainText}
       }
     }
 
-    writeBusinessData(businessData);
+    writeBusinessData(clientId, businessData);
 
     return res.json({
       success: true,
+      clientId,
       businessData
     });
   } catch (error) {
@@ -395,7 +415,9 @@ ${plainText}
 app.post("/chat", async (req, res) => {
   try {
     const message = req.body.message;
-    const businessData = readBusinessData();
+    const clientId = req.body.clientId || "bright-smile-dental";
+    const sessionId = req.body.sessionId || "default-session";
+    const businessData = readBusinessData(clientId);
 
     if (!message) {
       return res.status(400).json({
@@ -404,19 +426,19 @@ app.post("/chat", async (req, res) => {
     }
 
     if (looksLikeLeadInfo(message)) {
-      const lead = updateCurrentLead(message);
+      const lead = updateSessionLead(sessionId, message);
 
       if (isLeadComplete(lead)) {
-        saveCompletedLead(lead);
+        saveCompletedLead(lead, clientId);
 
         try {
-          await appendLeadToGoogleSheet(lead);
+          await appendLeadToGoogleSheet(lead, clientId, businessData);
         } catch (sheetError) {
           console.error("GOOGLE SHEETS ERROR:", sheetError.message);
         }
 
         const customerName = lead.name;
-        resetCurrentLead();
+        resetSession(sessionId);
 
         return res.json({
           reply: `Thanks ${customerName}. I’ve captured your details and ${businessData.businessName} will follow up shortly.`
@@ -519,6 +541,6 @@ Your job:
 
 app.listen(3000, () => {
   ensureLeadsFileExists();
-  ensureBusinessDataFileExists();
+  ensureClientsDirExists();
   console.log("AI server running on port 3000");
 });
