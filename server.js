@@ -124,13 +124,13 @@ async function appendLeadToGoogleSheet(lead) {
     return;
   }
 
-  if (!fs.existsSync(GOOGLE_CREDENTIALS_FILE)) {
-    console.log("google-service-account.json not found. Skipping Google Sheets.");
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+    console.log("GOOGLE_SERVICE_ACCOUNT missing. Skipping Google Sheets.");
     return;
   }
 
   const auth = new google.auth.GoogleAuth({
-    keyFile: GOOGLE_CREDENTIALS_FILE,
+    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
     scopes: ["https://www.googleapis.com/auth/spreadsheets"]
   });
 
@@ -141,7 +141,7 @@ async function appendLeadToGoogleSheet(lead) {
     range: SHEET_RANGE,
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [[lead.name, `'${lead.phone}`, lead.email, lead.notes, lead.time]]
+      values: [[lead.name, lead.phone, lead.email, lead.notes, lead.time]]
     }
   });
 }
