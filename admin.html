@@ -4,8 +4,8 @@
   <title>AI Agent Admin</title>
   <style>
     body {
-      font-family: Arial;
-      max-width: 700px;
+      font-family: Arial, sans-serif;
+      max-width: 800px;
       margin: 40px auto;
       padding: 20px;
       background: #f5f5f5;
@@ -14,104 +14,142 @@
     .card {
       background: white;
       padding: 20px;
-      border-radius: 10px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      margin-bottom: 20px;
     }
 
-    input {
-      width: 100%;
-      padding: 10px;
-      margin-top: 10px;
-      font-size: 16px;
+    h1, h2 {
+      margin-top: 0;
     }
 
-    button {
+    input, button {
       width: 100%;
       padding: 12px;
       margin-top: 10px;
       font-size: 16px;
+      box-sizing: border-box;
+    }
+
+    button {
       cursor: pointer;
     }
 
     pre {
-      background: black;
-      color: white;
+      background: #111827;
+      color: #f9fafb;
       padding: 15px;
       margin-top: 20px;
       border-radius: 8px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 100px;
+    }
+
+    .success-box {
+      background: #ecfdf5;
+      border: 1px solid #10b981;
+      color: #065f46;
+      padding: 14px;
+      border-radius: 10px;
+      margin-top: 20px;
+      display: none;
+    }
+
+    .label {
+      font-size: 14px;
+      color: #555;
+      margin-top: 14px;
     }
   </style>
 </head>
-
 <body>
 
-<div class="card">
+  <div class="card">
+    <h1>Client Onboarding</h1>
+    <p>Enter a client ID and website URL. The system will train the assistant and generate the install snippet.</p>
 
-<h1>Train AI From Website</h1>
+    <div class="label">Client ID</div>
+    <input id="clientId" placeholder="example: bright-smile-dental" />
 
-<input id="clientId" placeholder="Client ID (example: bright-smile-dental)" />
+    <div class="label">Website URL</div>
+    <input id="websiteUrl" placeholder="example: https://example.com" />
 
-<input id="websiteUrl" placeholder="Website URL (example: https://example.com)" />
+    <button id="trainBtn">Train Client + Generate Install Snippet</button>
 
-<button id="trainBtn">Train From Website</button>
+    <div id="successBox" class="success-box">
+      Client trained successfully.
+    </div>
 
-<h2>Result</h2>
+    <h2>Install Snippet</h2>
+    <pre id="snippetBox">Waiting...</pre>
 
-<pre id="resultBox">Waiting...</pre>
+    <h2>Training Result</h2>
+    <pre id="resultBox">Waiting...</pre>
+  </div>
 
-</div>
+  <script>
+    const API = "https://ai-agent-production-5fa8.up.railway.app";
 
-<script>
+    const trainBtn = document.getElementById("trainBtn");
+    const clientId = document.getElementById("clientId");
+    const websiteUrl = document.getElementById("websiteUrl");
+    const resultBox = document.getElementById("resultBox");
+    const snippetBox = document.getElementById("snippetBox");
+    const successBox = document.getElementById("successBox");
 
-const API = "https://ai-agent-production-5fa8.up.railway.app";
+    function buildSnippet(client) {
+      return `<script src="${API}/widget.js" data-client="${client}"><\/script>`;
+    }
 
-const trainBtn = document.getElementById("trainBtn");
-const clientId = document.getElementById("clientId");
-const websiteUrl = document.getElementById("websiteUrl");
-const resultBox = document.getElementById("resultBox");
+    trainBtn.onclick = async () => {
+      const client = clientId.value.trim();
+      const url = websiteUrl.value.trim();
 
-trainBtn.onclick = async () => {
+      successBox.style.display = "none";
 
-  const client = clientId.value.trim();
-  const url = websiteUrl.value.trim();
+      if (!client) {
+        resultBox.textContent = "Enter a client id first.";
+        return;
+      }
 
-  if(!client){
-    resultBox.textContent = "Enter a client id first";
-    return;
-  }
+      if (!url) {
+        resultBox.textContent = "Enter a website url.";
+        return;
+      }
 
-  if(!url){
-    resultBox.textContent = "Enter a website url";
-    return;
-  }
+      resultBox.textContent = "Training client...";
+      snippetBox.textContent = "Generating snippet...";
 
-  resultBox.textContent = "Training...";
+      try {
+        const response = await fetch(API + "/train-from-website", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            clientId: client,
+            url: url
+          })
+        });
 
-  try{
+        const data = await response.json();
 
-    const response = await fetch(API + "/train-from-website",{
-      method:"POST",
-      headers:{
-        "Content-Type":"application/json"
-      },
-      body:JSON.stringify({
-        clientId:client,
-        url:url
-      })
-    });
+        if (!response.ok) {
+          resultBox.textContent = JSON.stringify(data, null, 2);
+          snippetBox.textContent = "Snippet not generated because training failed.";
+          return;
+        }
 
-    const data = await response.json();
-
-    resultBox.textContent = JSON.stringify(data,null,2);
-
-  }catch(e){
-
-    resultBox.textContent = "Error: " + e.message;
-
-  }
-
-}
-
-</script>
+        resultBox.textContent = JSON.stringify(data, null, 2);
+        snippetBox.textContent = buildSnippet(client);
+        successBox.style.display = "block";
+      } catch (e) {
+        resultBox.textContent = "Error: " + e.message;
+        snippetBox.textContent = "Snippet not generated because training failed.";
+      }
+    };
+  </script>
 
 </body>
 </html>
