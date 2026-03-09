@@ -1,6 +1,7 @@
 (function () {
-  const urlParams = new URLSearchParams(window.location.search);
-  const clientId = urlParams.get("client") || "bright-smile-dental";
+
+  const scriptTag = document.currentScript;
+  const clientId = scriptTag.getAttribute("data-client") || "bright-smile-dental";
 
   const config = {
     apiBaseUrl: "https://ai-agent-production-5fa8.up.railway.app",
@@ -161,9 +162,11 @@
 
   async function loadBusinessData() {
     try {
+
       const response = await fetch(
         `${config.apiBaseUrl}/business-data?client=${encodeURIComponent(config.clientId)}`
       );
+
       const data = await response.json();
 
       businessData = {
@@ -176,14 +179,13 @@
       titleEl.textContent = businessData.assistantTitle;
       subtitleEl.textContent = businessData.subtitle;
 
-      console.log("Loaded client:", config.clientId);
-      console.log("Loaded business:", data.businessName);
     } catch (error) {
       console.error("Failed to load business data:", error);
     }
   }
 
   async function sendMessage() {
+
     const message = input.value.trim();
     if (!message) return;
 
@@ -191,6 +193,7 @@
     input.value = "";
 
     try {
+
       const response = await fetch(`${config.apiBaseUrl}/chat`, {
         method: "POST",
         headers: {
@@ -204,21 +207,29 @@
       });
 
       const data = await response.json();
+
       addMessage("AI: " + (data.reply || "No response received."), "ai-widget-bot");
+
     } catch (error) {
+
       addMessage("AI: Error connecting to server.", "ai-widget-bot");
-      console.error(error);
+
     }
   }
 
   button.addEventListener("click", () => {
+
     chatbox.style.display = chatbox.style.display === "flex" ? "none" : "flex";
 
     if (chatbox.style.display === "flex") {
+
       if (!messages.dataset.started) {
+
         addMessage(`AI: ${businessData.welcomeMessage}`, "ai-widget-bot");
         messages.dataset.started = "true";
+
       }
+
       input.focus();
     }
   });
@@ -226,10 +237,13 @@
   sendButton.addEventListener("click", sendMessage);
 
   input.addEventListener("keydown", function (e) {
+
     if (e.key === "Enter") {
       sendMessage();
     }
+
   });
 
   loadBusinessData();
+
 })();
