@@ -1,13 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Agent Admin</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      max-width: 760px;
+      font-family: Arial;
+      max-width: 700px;
       margin: 40px auto;
       padding: 20px;
       background: #f5f5f5;
@@ -15,89 +13,105 @@
 
     .card {
       background: white;
-      border-radius: 12px;
       padding: 20px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      border-radius: 10px;
     }
 
-    h1, h2, p {
-      margin-top: 0;
+    input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 16px;
     }
 
-    input, button {
+    button {
       width: 100%;
       padding: 12px;
       margin-top: 10px;
       font-size: 16px;
-      box-sizing: border-box;
-    }
-
-    button {
       cursor: pointer;
     }
 
     pre {
-      white-space: pre-wrap;
-      word-break: break-word;
-      background: #111827;
-      color: #f9fafb;
-      padding: 16px;
-      border-radius: 10px;
-      overflow: auto;
-      min-height: 160px;
+      background: black;
+      color: white;
+      padding: 15px;
+      margin-top: 20px;
+      border-radius: 8px;
     }
   </style>
 </head>
+
 <body>
-  <div class="card">
-    <h1>Train Assistant From Website</h1>
-    <p>Paste a business website URL and generate business knowledge automatically.</p>
 
-    <input id="websiteUrl" type="text" placeholder="https://example.com" />
-    <button id="trainBtn">Train From Website</button>
+<div class="card">
 
-    <h2>Result</h2>
-    <pre id="resultBox">Waiting...</pre>
-  </div>
+<h1>Train AI From Website</h1>
 
-  <script>
-    const apiBaseUrl = "https://ai-agent-production-5fa8.up.railway.app";
-    const trainBtn = document.getElementById("trainBtn");
-    const websiteUrl = document.getElementById("websiteUrl");
-    const resultBox = document.getElementById("resultBox");
+<input id="clientId" placeholder="Client ID (example: bright-smile-dental)" />
 
-    trainBtn.addEventListener("click", async () => {
-      const url = websiteUrl.value.trim();
+<input id="websiteUrl" placeholder="Website URL (example: https://example.com)" />
 
-      if (!url) {
-        resultBox.textContent = "Please enter a website URL.";
-        return;
-      }
+<button id="trainBtn">Train From Website</button>
 
-      resultBox.textContent = "Training...";
+<h2>Result</h2>
 
-      try {
-        const response = await fetch(`${apiBaseUrl}/train-from-website`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ url: url })
-        });
+<pre id="resultBox">Waiting...</pre>
 
-        const data = await response.json();
+</div>
 
-        if (!response.ok) {
-          resultBox.textContent = `Error: ${data.error || "Unknown error"}`;
-          return;
-        }
+<script>
 
-        resultBox.textContent = JSON.stringify(data, null, 2);
-      } catch (error) {
-        resultBox.textContent = `Training failed: ${error.message}`;
-        console.error("Admin page error:", error);
-      }
+const API = "https://ai-agent-production-5fa8.up.railway.app";
+
+const trainBtn = document.getElementById("trainBtn");
+const clientId = document.getElementById("clientId");
+const websiteUrl = document.getElementById("websiteUrl");
+const resultBox = document.getElementById("resultBox");
+
+trainBtn.onclick = async () => {
+
+  const client = clientId.value.trim();
+  const url = websiteUrl.value.trim();
+
+  if(!client){
+    resultBox.textContent = "Enter a client id first";
+    return;
+  }
+
+  if(!url){
+    resultBox.textContent = "Enter a website url";
+    return;
+  }
+
+  resultBox.textContent = "Training...";
+
+  try{
+
+    const response = await fetch(API + "/train-from-website",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({
+        clientId:client,
+        url:url
+      })
     });
-  </script>
+
+    const data = await response.json();
+
+    resultBox.textContent = JSON.stringify(data,null,2);
+
+  }catch(e){
+
+    resultBox.textContent = "Error: " + e.message;
+
+  }
+
+}
+
+</script>
+
 </body>
 </html>
