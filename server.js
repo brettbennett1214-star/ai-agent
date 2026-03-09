@@ -12,14 +12,10 @@ app.use(cors());
 app.use(express.json());
 
 const LEADS_FILE = "leads.json";
-const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-});
+const BUSINESS_DATA_FILE = "business-data.json";
 const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
 const SHEET_RANGE = "Sheet1!A:E";
 
-// simple in-memory current lead for demo
 let currentLead = {
   name: "",
   phone: "",
@@ -31,6 +27,31 @@ let currentLead = {
 function ensureLeadsFileExists() {
   if (!fs.existsSync(LEADS_FILE)) {
     fs.writeFileSync(LEADS_FILE, "[]", "utf8");
+  }
+}
+
+function ensureBusinessDataFileExists() {
+  if (!fs.existsSync(BUSINESS_DATA_FILE)) {
+    fs.writeFileSync(
+      BUSINESS_DATA_FILE,
+      JSON.stringify(
+        {
+          businessName: "Demo Business",
+          industry: "Local Business",
+          location: "Unknown",
+          hours: "Unknown",
+          phone: "",
+          email: "",
+          services: [],
+          bookingMessage:
+            "To book an appointment, please share your name, phone number, and email.",
+          faqs: []
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
   }
 }
 
@@ -48,6 +69,32 @@ function readLeads() {
 
 function writeLeads(leads) {
   fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2), "utf8");
+}
+
+function readBusinessData() {
+  ensureBusinessDataFileExists();
+
+  try {
+    const raw = fs.readFileSync(BUSINESS_DATA_FILE, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return {
+      businessName: "Demo Business",
+      industry: "Local Business",
+      location: "Unknown",
+      hours: "Unknown",
+      phone: "",
+      email: "",
+      services: [],
+      bookingMessage:
+        "To book an appointment, please share your name, phone number, and email.",
+      faqs: []
+    };
+  }
+}
+
+function writeBusinessData(data) {
+  fs.writeFileSync(BUSINESS_DATA_FILE, JSON.stringify(data, null, 2), "utf8");
 }
 
 function extractName(message) {
@@ -118,6 +165,59 @@ function resetCurrentLead() {
   };
 }
 
+function stripHtml(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getTitleFromHtml(html) {
+  const match = html.match(/<title>([\s\S]*?)<\/title>/i);
+  return match ? match[1].trim() : "";
+}
+
+function getMetaDescriptionFromHtml(html) {
+  const match = html.match(
+    /<meta[^>]+name=["']description["'][^>]+content=["']([^"]*?)["']/i
+  );
+  return match ? match[1].trim() : "";
+}
+
+function extractEmailsFromText(text) {
+  const matches = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/gi) || [];
+  return [...new Set(matches)];
+}
+
+function extractPhonesFromText(text) {
+  const matches = text.match(/(\+?\d[\d\s\-()]{7,}\d)/g) || [];
+  return [...new Set(matches.map((m) => m.trim()))];
+}
+
+function extractLikelyServices(text) {
+  const serviceKeywords = [
+    "teeth whitening",
+    "dental cleaning",
+    "dental implants",
+    "veneers",
+    "emergency dental care",
+    "root canal",
+    "checkup",
+    "consultation",
+    "cleaning",
+    "whitening",
+    "implants",
+    "emergency care"
+  ];
+
+  const lower = text.toLowerCase();
+  return serviceKeywords.filter((service) => lower.includes(service));
+}
+
 async function appendLeadToGoogleSheet(lead) {
   if (!SPREADSHEET_ID) {
     console.log("GOOGLE_SHEETS_SPREADSHEET_ID missing. Skipping Google Sheets.");
@@ -157,9 +257,155 @@ app.get("/", (req, res) => {
   res.send("Server is running");
 });
 
+app.get("/business-data", (req, res) => {
+  const businessData = readBusinessData();
+  res.json(businessData);
+});
+
+app.post("/train-from-website", async (req, res) => {
+  try {
+    const { url } = req.body;
+
+    if (!url) {
+      return res.status(400).json({
+        error: "Website URL is required."
+      });
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0"
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(400).json({
+        error: `Could not fetch website. Status: ${response.status}`
+      });
+    }
+
+    const html = await response.text();
+    const pageTitle = getTitleFromHtml(html);
+    const metaDescription = getMetaDescriptionFromHtml(html);
+    const plainText = stripHtml(html).slice(0, 12000);
+
+    const emails = extractEmailsFromText(plainText);
+    const phones = extractPhonesFromText(plainText);
+    const likelyServices = extractLikelyServices(plainText);
+
+    const fallbackBusinessData = {
+      businessName: pageTitle || "Imported Business",
+      industry: "Local Business",
+      location: "Unknown",
+      hours: "Unknown",
+      phone: phones[0] || "",
+      email: emails[0] || "",
+      services: likelyServices.length ? likelyServices : [],
+      bookingMessage:
+        "To book an appointment, please share your name, phone number, and email.",
+      faqs: metaDescription
+        ? [
+            {
+              question: "What does this business offer?",
+              answer: metaDescription
+            }
+          ]
+        : []
+    };
+
+    if (!openai) {
+      writeBusinessData(fallbackBusinessData);
+      return res.json({
+        success: true,
+        mode: "fallback",
+        businessData: fallbackBusinessData
+      });
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `
+You extract business information from website content.
+
+Return valid JSON only with this exact structure:
+{
+  "businessName": "",
+  "industry": "",
+  "location": "",
+  "hours": "",
+  "phone": "",
+  "email": "",
+  "services": [],
+  "bookingMessage": "",
+  "faqs": [
+    { "question": "", "answer": "" }
+  ]
+}
+
+Rules:
+- Use only the provided website content
+- If something is unknown, use "Unknown" or empty string
+- Keep services concise
+- Keep 3 to 6 FAQs if possible
+          `.trim()
+        },
+        {
+          role: "user",
+          content: `
+Website URL: ${url}
+
+Page title:
+${pageTitle}
+
+Meta description:
+${metaDescription}
+
+Website text:
+${plainText}
+          `.trim()
+        }
+      ]
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content);
+
+    const businessData = {
+      businessName: parsed.businessName || fallbackBusinessData.businessName,
+      industry: parsed.industry || fallbackBusinessData.industry,
+      location: parsed.location || fallbackBusinessData.location,
+      hours: parsed.hours || fallbackBusinessData.hours,
+      phone: parsed.phone || fallbackBusinessData.phone,
+      email: parsed.email || fallbackBusinessData.email,
+      services: Array.isArray(parsed.services) ? parsed.services : fallbackBusinessData.services,
+      bookingMessage:
+        parsed.bookingMessage ||
+        "To book an appointment, please share your name, phone number, and email.",
+      faqs: Array.isArray(parsed.faqs) ? parsed.faqs : fallbackBusinessData.faqs
+    };
+
+    writeBusinessData(businessData);
+
+    return res.json({
+      success: true,
+      mode: "ai",
+      businessData
+    });
+  } catch (error) {
+    console.error("TRAINING ERROR:", error);
+    return res.status(500).json({
+      error: "Failed to train from website."
+    });
+  }
+});
+
 app.post("/chat", async (req, res) => {
   try {
     const message = req.body.message;
+    const businessData = readBusinessData();
 
     if (!message) {
       return res.status(400).json({
@@ -183,7 +429,7 @@ app.post("/chat", async (req, res) => {
         resetCurrentLead();
 
         return res.json({
-          reply: `Thanks ${customerName}. I’ve captured your details and the business will follow up shortly.`
+          reply: `Thanks ${customerName}. I’ve captured your details and ${businessData.businessName} will follow up shortly.`
         });
       }
 
@@ -230,7 +476,7 @@ app.post("/chat", async (req, res) => {
 
     if (!openai) {
       return res.json({
-        reply: "Demo mode: Thanks for your message. How can I help you today?"
+        reply: `Thanks for your message. ${businessData.bookingMessage}`
       });
     }
 
@@ -240,14 +486,26 @@ app.post("/chat", async (req, res) => {
         {
           role: "system",
           content: `
-You are a friendly AI assistant for a local business.
+You are a friendly AI assistant for ${businessData.businessName}, a ${businessData.industry} business.
+
+Business details:
+- Name: ${businessData.businessName}
+- Industry: ${businessData.industry}
+- Location: ${businessData.location}
+- Hours: ${businessData.hours}
+- Phone: ${businessData.phone}
+- Email: ${businessData.email}
+- Services: ${businessData.services.join(", ")}
+
+FAQs:
+${businessData.faqs.map((faq) => `Q: ${faq.question}\nA: ${faq.answer}`).join("\n\n")}
 
 Your job:
-- Answer customer questions clearly
+- Answer customer questions clearly using only the business information above
 - Be short, helpful, and professional
-- Encourage the visitor to book an appointment
-- If the visitor shows interest, ask for their name, phone number, and email
-- Never make up pricing, hours, or services unless the business provided them
+- Encourage the visitor to book an appointment when appropriate
+- If the visitor wants to book, ask for their name, phone number, and email
+- Never invent prices, services, opening hours, or policies not listed above
           `.trim()
         },
         {
@@ -265,7 +523,7 @@ Your job:
 
     if (error.status === 429) {
       return res.json({
-        reply: "Demo mode: We'd be happy to help. To get started, may I have your name, phone number, and email?"
+        reply: "We’d be happy to help. To get started, please share your name, phone number, and email."
       });
     }
 
@@ -277,5 +535,6 @@ Your job:
 
 app.listen(3000, () => {
   ensureLeadsFileExists();
+  ensureBusinessDataFileExists();
   console.log("AI server running on port 3000");
 });

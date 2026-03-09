@@ -1,0 +1,39 @@
+<script>
+  const apiBaseUrl = "https://ai-agent-production-5fa8.up.railway.app";
+  const trainBtn = document.getElementById("trainBtn");
+  const websiteUrl = document.getElementById("websiteUrl");
+  const resultBox = document.getElementById("resultBox");
+
+  trainBtn.addEventListener("click", async () => {
+    const url = websiteUrl.value.trim();
+
+    if (!url) {
+      resultBox.textContent = "Please enter a website URL.";
+      return;
+    }
+
+    resultBox.textContent = "Training...";
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/train-from-website`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ url })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        resultBox.textContent = `Error: ${data.error || "Unknown error"}`;
+        return;
+      }
+
+      resultBox.textContent = JSON.stringify(data, null, 2);
+    } catch (error) {
+      resultBox.textContent = `Training failed: ${error.message}`;
+      console.error(error);
+    }
+  });
+</script>
