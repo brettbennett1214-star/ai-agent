@@ -1,11 +1,14 @@
 (function () {
   const config = {
-    businessName: "Demo Business",
-    assistantTitle: "AI Assistant",
-    welcomeMessage: "Hi! I’m your business assistant. How can I help you today?",
-    subtitle: "Ask about services or appointments",
-    apiUrl: "http://localhost:3000/chat",
+    apiBaseUrl: "https://ai-agent-production-5fa8.up.railway.app",
     primaryColor: "#2563eb"
+  };
+
+  let businessData = {
+    businessName: "Business Assistant",
+    assistantTitle: "AI Assistant",
+    welcomeMessage: "Hi! How can I help you today?",
+    subtitle: "Ask about services or appointments"
   };
 
   const style = document.createElement("style");
@@ -122,8 +125,8 @@
   chatbox.id = "ai-widget-chatbox";
   chatbox.innerHTML = `
     <div id="ai-widget-header">
-      ${config.assistantTitle}
-      <div id="ai-widget-subheader">${config.subtitle}</div>
+      <span id="ai-widget-title">AI Assistant</span>
+      <div id="ai-widget-subheader">Ask about services or appointments</div>
     </div>
     <div id="ai-widget-messages"></div>
     <div id="ai-widget-input-area">
@@ -138,6 +141,8 @@
   const messages = document.getElementById("ai-widget-messages");
   const input = document.getElementById("ai-widget-input");
   const sendButton = document.getElementById("ai-widget-send");
+  const titleEl = document.getElementById("ai-widget-title");
+  const subtitleEl = document.getElementById("ai-widget-subheader");
 
   function addMessage(text, sender) {
     const div = document.createElement("div");
@@ -145,6 +150,25 @@
     div.textContent = text;
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  async function loadBusinessData() {
+    try {
+      const response = await fetch(`${config.apiBaseUrl}/business-data`);
+      const data = await response.json();
+
+      businessData = {
+        businessName: data.businessName || "Business Assistant",
+        assistantTitle: `${data.businessName || "Business"} Assistant`,
+        welcomeMessage: `Hi! I’m ${data.businessName || "the business"}’s assistant. How can I help you today?`,
+        subtitle: "Ask about services or appointments"
+      };
+
+      titleEl.textContent = businessData.assistantTitle;
+      subtitleEl.textContent = businessData.subtitle;
+    } catch (error) {
+      console.error("Failed to load business data:", error);
+    }
   }
 
   async function sendMessage() {
@@ -155,7 +179,7 @@
     input.value = "";
 
     try {
-      const response = await fetch(config.apiUrl, {
+      const response = await fetch(`${config.apiBaseUrl}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -176,7 +200,7 @@
 
     if (chatbox.style.display === "flex") {
       if (!messages.dataset.started) {
-        addMessage(`AI: ${config.welcomeMessage}`, "ai-widget-bot");
+        addMessage(`AI: ${businessData.welcomeMessage}`, "ai-widget-bot");
         messages.dataset.started = "true";
       }
       input.focus();
@@ -190,4 +214,6 @@
       sendMessage();
     }
   });
+
+  loadBusinessData();
 })();
