@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Business Assistant</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 700px;
+      background: white;
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+    }
+
+    .header {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #111827;
+      color: white;
+    }
+
+    .header h1 {
+      margin: 0 0 6px 0;
+      font-size: 24px;
+    }
+
+    .header p {
+      margin: 0;
+      color: #d1d5db;
+      font-size: 14px;
+    }
+
+    #chat {
+      height: 420px;
+      overflow-y: auto;
+      padding: 18px;
+      background: #f9fafb;
+    }
+
+    .message {
+      max-width: 80%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      margin-bottom: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .user {
+      background: #dbeafe;
+      margin-left: auto;
+      text-align: right;
+    }
+
+    .bot {
+      background: #e5e7eb;
+      margin-right: auto;
+      text-align: left;
+    }
+
+    .input-area {
+      display: flex;
+      gap: 10px;
+      padding: 16px;
+      border-top: 1px solid #e5e7eb;
+      background: white;
+    }
+
+    #messageInput {
+      flex: 1;
+      padding: 14px;
+      font-size: 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      outline: none;
+    }
+
+    #messageInput:focus {
+      border-color: #2563eb;
+    }
+
+    #sendBtn {
+      border: none;
+      background: #2563eb;
+      color: white;
+      padding: 14px 18px;
+      font-size: 16px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    #sendBtn:hover {
+      opacity: 0.95;
+    }
+
+    .status {
+      padding: 0 16px 16px 16px;
+      font-size: 13px;
+      color: #6b7280;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <h1>AI Business Assistant</h1>
+      <p>Ask questions like a real customer would.</p>
+    </div>
+
+    <div id="chat"></div>
+
+    <div class="input-area">
+      <input
+        id="messageInput"
+        type="text"
+        placeholder="Type your message here..."
+      />
+      <button id="sendBtn">Send</button>
+    </div>
+
+    <div class="status" id="statusText">Ready</div>
+  </div>
+
+  <script>
+    const chat = document.getElementById("chat");
+    const input = document.getElementById("messageInput");
+    const button = document.getElementById("sendBtn");
+    const statusText = document.getElementById("statusText");
+
+    function addMessage(text, sender) {
+      const div = document.createElement("div");
+      div.className = `message ${sender}`;
+      div.textContent = text;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const message = input.value.trim();
+      if (!message) return;
+
+      addMessage("You: " + message, "user");
+      input.value = "";
+      input.focus();
+      statusText.textContent = "Sending...";
+
+      try {
+        const response = await fetch("http://localhost:3000/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await response.json();
+        addMessage("AI: " + (data.reply || "No response received."), "bot");
+        statusText.textContent = "Ready";
+      } catch (error) {
+        console.error("Fetch error:", error);
+        addMessage("AI: Error connecting to server.", "bot");
+        statusText.textContent = "Connection failed";
+      }
+    }
+
+    button.addEventListener("click", sendMessage);
+
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        sendMessage();
+      }
+    });
+
+    addMessage(
+      "AI: Hi! I’m your business assistant. Ask me about services, appointments, or availability.",
+      "bot"
+    );
+  </script>
+</body>
+</html>
