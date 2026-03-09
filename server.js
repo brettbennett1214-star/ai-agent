@@ -394,10 +394,11 @@ ${plainText}
       mode: "ai",
       businessData
     });
-  } catch (error) {
+    } catch (error) {
     console.error("TRAINING ERROR:", error);
+
     return res.status(500).json({
-      error: "Failed to train from website."
+      error: error.message || "Failed to train from website."
     });
   }
 });
