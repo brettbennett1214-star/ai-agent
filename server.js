@@ -12,7 +12,10 @@ app.use(cors());
 app.use(express.json());
 
 const LEADS_FILE = "leads.json";
-const GOOGLE_CREDENTIALS_FILE = "google-service-account.json";
+const auth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+});
 const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
 const SHEET_RANGE = "Sheet1!A:E";
 
@@ -138,7 +141,7 @@ async function appendLeadToGoogleSheet(lead) {
     range: SHEET_RANGE,
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [[lead.name, lead.phone, lead.email, lead.notes, lead.time]]
+      values: [[lead.name, `'${lead.phone}`, lead.email, lead.notes, lead.time]]
     }
   });
 }
