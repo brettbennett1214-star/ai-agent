@@ -4,6 +4,7 @@ import OpenAI from "openai";
 import dotenv from "dotenv";
 import fs from "fs";
 import axios from "axios";
+import https from "https";
 import { google } from "googleapis";
 
 dotenv.config();
@@ -220,15 +221,8 @@ function extractLikelyServices(text) {
 }
 
 async function appendLeadToGoogleSheet(lead) {
-  if (!SPREADSHEET_ID) {
-    console.log("GOOGLE_SHEETS_SPREADSHEET_ID missing. Skipping Google Sheets.");
-    return;
-  }
-
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-    console.log("GOOGLE_SERVICE_ACCOUNT missing. Skipping Google Sheets.");
-    return;
-  }
+  if (!SPREADSHEET_ID) return;
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT) return;
 
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
@@ -259,8 +253,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/business-data", (req, res) => {
-  const businessData = readBusinessData();
-  res.json(businessData);
+  res.json(readBusinessData());
 });
 
 app.post("/train-from-website", async (req, res) => {
@@ -268,33 +261,23 @@ app.post("/train-from-website", async (req, res) => {
     const { url } = req.body;
 
     if (!url) {
-      return res.status(400).json({
-        error: "Website URL is required."
-      });
+      return res.status(400).json({ error: "Website URL is required." });
     }
 
-    let html = "";
+    const websiteResponse = await axios.get(url, {
+      timeout: 15000,
+      maxRedirects: 5,
+      httpsAgent: new https.Agent({
+        rejectUnauthorized: false
+      }),
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml"
+      }
+    });
 
-    try {
-      const websiteResponse = await axios.get(url, {
-        timeout: 15000,
-        maxRedirects: 5,
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-          Accept: "text/html,application/xhtml+xml"
-        }
-      });
-
-      html = websiteResponse.data;
-    } catch (fetchError) {
-      console.error("WEBSITE FETCH ERROR:", fetchError.message);
-
-      return res.status(400).json({
-        error: `Could not fetch website: ${fetchError.message}`
-      });
-    }
-
+    const html = websiteResponse.data;
     const pageTitle = getTitleFromHtml(html);
     const metaDescription = getMetaDescriptionFromHtml(html);
     const plainText = stripHtml(html).slice(0, 12000);
@@ -323,25 +306,17 @@ app.post("/train-from-website", async (req, res) => {
         : []
     };
 
-    if (!openai) {
-      writeBusinessData(fallbackBusinessData);
-      return res.json({
-        success: true,
-        mode: "fallback",
-        businessData: fallbackBusinessData
-      });
-    }
-
     let businessData = fallbackBusinessData;
 
-    try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: `
+    if (openai) {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: `
 You extract business information from website content.
 
 Return valid JSON only with this exact structure:
@@ -358,17 +333,11 @@ Return valid JSON only with this exact structure:
     { "question": "", "answer": "" }
   ]
 }
-
-Rules:
-- Use only the provided website content
-- If something is unknown, use "Unknown" or empty string
-- Keep services concise
-- Keep 3 to 6 FAQs if possible
-            `.trim()
-          },
-          {
-            role: "user",
-            content: `
+              `.trim()
+            },
+            {
+              role: "user",
+              content: `
 Website URL: ${url}
 
 Page title:
@@ -379,32 +348,33 @@ ${metaDescription}
 
 Website text:
 ${plainText}
-            `.trim()
-          }
-        ]
-      });
+              `.trim()
+            }
+          ]
+        });
 
-      const parsed = JSON.parse(completion.choices[0].message.content);
+        const parsed = JSON.parse(completion.choices[0].message.content);
 
-      businessData = {
-        businessName: parsed.businessName || fallbackBusinessData.businessName,
-        industry: parsed.industry || fallbackBusinessData.industry,
-        location: parsed.location || fallbackBusinessData.location,
-        hours: parsed.hours || fallbackBusinessData.hours,
-        phone: parsed.phone || fallbackBusinessData.phone,
-        email: parsed.email || fallbackBusinessData.email,
-        services: Array.isArray(parsed.services)
-          ? parsed.services
-          : fallbackBusinessData.services,
-        bookingMessage:
-          parsed.bookingMessage ||
-          "To book an appointment, please share your name, phone number, and email.",
-        faqs: Array.isArray(parsed.faqs)
-          ? parsed.faqs
-          : fallbackBusinessData.faqs
-      };
-    } catch (aiError) {
-      console.error("AI TRAINING PARSE ERROR:", aiError);
+        businessData = {
+          businessName: parsed.businessName || fallbackBusinessData.businessName,
+          industry: parsed.industry || fallbackBusinessData.industry,
+          location: parsed.location || fallbackBusinessData.location,
+          hours: parsed.hours || fallbackBusinessData.hours,
+          phone: parsed.phone || fallbackBusinessData.phone,
+          email: parsed.email || fallbackBusinessData.email,
+          services: Array.isArray(parsed.services)
+            ? parsed.services
+            : fallbackBusinessData.services,
+          bookingMessage:
+            parsed.bookingMessage ||
+            "To book an appointment, please share your name, phone number, and email.",
+          faqs: Array.isArray(parsed.faqs)
+            ? parsed.faqs
+            : fallbackBusinessData.faqs
+        };
+      } catch (aiError) {
+        console.error("AI TRAINING PARSE ERROR:", aiError.message);
+      }
     }
 
     writeBusinessData(businessData);
@@ -414,7 +384,7 @@ ${plainText}
       businessData
     });
   } catch (error) {
-    console.error("TRAINING ERROR:", error);
+    console.error("TRAINING ERROR:", error.message);
 
     return res.status(500).json({
       error: error.message || "Failed to train from website."
@@ -442,7 +412,7 @@ app.post("/chat", async (req, res) => {
         try {
           await appendLeadToGoogleSheet(lead);
         } catch (sheetError) {
-          console.error("GOOGLE SHEETS ERROR:", sheetError);
+          console.error("GOOGLE SHEETS ERROR:", sheetError.message);
         }
 
         const customerName = lead.name;
@@ -539,13 +509,7 @@ Your job:
       reply: completion.choices[0].message.content
     });
   } catch (error) {
-    console.error("SERVER ERROR:", error);
-
-    if (error.status === 429) {
-      return res.json({
-        reply: "We’d be happy to help. To get started, please share your name, phone number, and email."
-      });
-    }
+    console.error("SERVER ERROR:", error.message);
 
     return res.status(500).json({
       reply: "Something went wrong on the server."
