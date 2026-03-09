@@ -1,8 +1,15 @@
 (function () {
+  const urlParams = new URLSearchParams(window.location.search);
+  const clientId = urlParams.get("client") || "bright-smile-dental";
+
   const config = {
     apiBaseUrl: "https://ai-agent-production-5fa8.up.railway.app",
-    primaryColor: "#2563eb"
+    primaryColor: "#2563eb",
+    clientId
   };
+
+  const sessionId =
+    "session_" + Math.random().toString(36).slice(2) + Date.now();
 
   let businessData = {
     businessName: "Business Assistant",
@@ -154,18 +161,23 @@
 
   async function loadBusinessData() {
     try {
-      const response = await fetch(`${config.apiBaseUrl}/business-data`);
+      const response = await fetch(
+        `${config.apiBaseUrl}/business-data?client=${encodeURIComponent(config.clientId)}`
+      );
       const data = await response.json();
 
       businessData = {
         businessName: data.businessName || "Business Assistant",
         assistantTitle: `${data.businessName || "Business"} Assistant`,
-        welcomeMessage: `Hi! I’m ${data.businessName || "the business"}’s assistant. How can I help you today?`,
+        welcomeMessage: `Hi! I’m ${data.businessName || "the business"}'s assistant. How can I help you today?`,
         subtitle: "Ask about services or appointments"
       };
 
       titleEl.textContent = businessData.assistantTitle;
       subtitleEl.textContent = businessData.subtitle;
+
+      console.log("Loaded client:", config.clientId);
+      console.log("Loaded business:", data.businessName);
     } catch (error) {
       console.error("Failed to load business data:", error);
     }
@@ -184,7 +196,11 @@
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({
+          message,
+          clientId: config.clientId,
+          sessionId
+        })
       });
 
       const data = await response.json();
