@@ -3,6 +3,7 @@ import cors from "cors";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import fs from "fs";
+import axios from "axios";
 import { google } from "googleapis";
 
 dotenv.config();
@@ -272,19 +273,28 @@ app.post("/train-from-website", async (req, res) => {
       });
     }
 
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0"
-      }
-    });
+    let html = "";
 
-    if (!response.ok) {
+    try {
+      const websiteResponse = await axios.get(url, {
+        timeout: 15000,
+        maxRedirects: 5,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml"
+        }
+      });
+
+      html = websiteResponse.data;
+    } catch (fetchError) {
+      console.error("WEBSITE FETCH ERROR:", fetchError.message);
+
       return res.status(400).json({
-        error: `Could not fetch website. Status: ${response.status}`
+        error: `Could not fetch website: ${fetchError.message}`
       });
     }
 
-    const html = await response.text();
     const pageTitle = getTitleFromHtml(html);
     const metaDescription = getMetaDescriptionFromHtml(html);
     const plainText = stripHtml(html).slice(0, 12000);
@@ -322,13 +332,16 @@ app.post("/train-from-website", async (req, res) => {
       });
     }
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `
+    let businessData = fallbackBusinessData;
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `
 You extract business information from website content.
 
 Return valid JSON only with this exact structure:
@@ -351,11 +364,11 @@ Rules:
 - If something is unknown, use "Unknown" or empty string
 - Keep services concise
 - Keep 3 to 6 FAQs if possible
-          `.trim()
-        },
-        {
-          role: "user",
-          content: `
+            `.trim()
+          },
+          {
+            role: "user",
+            content: `
 Website URL: ${url}
 
 Page title:
@@ -366,35 +379,41 @@ ${metaDescription}
 
 Website text:
 ${plainText}
-          `.trim()
-        }
-      ]
-    });
+            `.trim()
+          }
+        ]
+      });
 
-    const parsed = JSON.parse(completion.choices[0].message.content);
+      const parsed = JSON.parse(completion.choices[0].message.content);
 
-    const businessData = {
-      businessName: parsed.businessName || fallbackBusinessData.businessName,
-      industry: parsed.industry || fallbackBusinessData.industry,
-      location: parsed.location || fallbackBusinessData.location,
-      hours: parsed.hours || fallbackBusinessData.hours,
-      phone: parsed.phone || fallbackBusinessData.phone,
-      email: parsed.email || fallbackBusinessData.email,
-      services: Array.isArray(parsed.services) ? parsed.services : fallbackBusinessData.services,
-      bookingMessage:
-        parsed.bookingMessage ||
-        "To book an appointment, please share your name, phone number, and email.",
-      faqs: Array.isArray(parsed.faqs) ? parsed.faqs : fallbackBusinessData.faqs
-    };
+      businessData = {
+        businessName: parsed.businessName || fallbackBusinessData.businessName,
+        industry: parsed.industry || fallbackBusinessData.industry,
+        location: parsed.location || fallbackBusinessData.location,
+        hours: parsed.hours || fallbackBusinessData.hours,
+        phone: parsed.phone || fallbackBusinessData.phone,
+        email: parsed.email || fallbackBusinessData.email,
+        services: Array.isArray(parsed.services)
+          ? parsed.services
+          : fallbackBusinessData.services,
+        bookingMessage:
+          parsed.bookingMessage ||
+          "To book an appointment, please share your name, phone number, and email.",
+        faqs: Array.isArray(parsed.faqs)
+          ? parsed.faqs
+          : fallbackBusinessData.faqs
+      };
+    } catch (aiError) {
+      console.error("AI TRAINING PARSE ERROR:", aiError);
+    }
 
     writeBusinessData(businessData);
 
     return res.json({
       success: true,
-      mode: "ai",
       businessData
     });
-    } catch (error) {
+  } catch (error) {
     console.error("TRAINING ERROR:", error);
 
     return res.status(500).json({

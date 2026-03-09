@@ -1,39 +1,103 @@
-<script>
-  const apiBaseUrl = "https://ai-agent-production-5fa8.up.railway.app";
-  const trainBtn = document.getElementById("trainBtn");
-  const websiteUrl = document.getElementById("websiteUrl");
-  const resultBox = document.getElementById("resultBox");
-
-  trainBtn.addEventListener("click", async () => {
-    const url = websiteUrl.value.trim();
-
-    if (!url) {
-      resultBox.textContent = "Please enter a website URL.";
-      return;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Agent Admin</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 760px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
     }
 
-    resultBox.textContent = "Training...";
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
 
-    try {
-      const response = await fetch(`${apiBaseUrl}/train-from-website`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ url })
-      });
+    h1, h2, p {
+      margin-top: 0;
+    }
 
-      const data = await response.json();
+    input, button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
 
-      if (!response.ok) {
-        resultBox.textContent = `Error: ${data.error || "Unknown error"}`;
+    button {
+      cursor: pointer;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #111827;
+      color: #f9fafb;
+      padding: 16px;
+      border-radius: 10px;
+      overflow: auto;
+      min-height: 160px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Train Assistant From Website</h1>
+    <p>Paste a business website URL and generate business knowledge automatically.</p>
+
+    <input id="websiteUrl" type="text" placeholder="https://example.com" />
+    <button id="trainBtn">Train From Website</button>
+
+    <h2>Result</h2>
+    <pre id="resultBox">Waiting...</pre>
+  </div>
+
+  <script>
+    const apiBaseUrl = "https://ai-agent-production-5fa8.up.railway.app";
+    const trainBtn = document.getElementById("trainBtn");
+    const websiteUrl = document.getElementById("websiteUrl");
+    const resultBox = document.getElementById("resultBox");
+
+    trainBtn.addEventListener("click", async () => {
+      const url = websiteUrl.value.trim();
+
+      if (!url) {
+        resultBox.textContent = "Please enter a website URL.";
         return;
       }
 
-      resultBox.textContent = JSON.stringify(data, null, 2);
-    } catch (error) {
-      resultBox.textContent = `Training failed: ${error.message}`;
-      console.error(error);
-    }
-  });
-</script>
+      resultBox.textContent = "Training...";
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/train-from-website`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ url: url })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          resultBox.textContent = `Error: ${data.error || "Unknown error"}`;
+          return;
+        }
+
+        resultBox.textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        resultBox.textContent = `Training failed: ${error.message}`;
+        console.error("Admin page error:", error);
+      }
+    });
+  </script>
+</body>
+</html>
